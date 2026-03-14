@@ -1,0 +1,262 @@
+{
+  "name": "Churn",
+  "nodes": [
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1_umFX_lnklZyKZLAKoTrMMO-ftSdlW-_oaplg7CYZd4/edit?usp=sharing",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "churn1",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -128,
+        -288
+      ],
+      "id": "8c557a6e-dd39-4b21-979c-56501d2235e1",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleApi": {
+          "id": "Wiepuq26xy8dOGcU",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -336,
+        -288
+      ],
+      "id": "945a6b14-dea0-4a7e-aac8-f7f7ea1275b9",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.filter(item => {\n  return item.json.processed !== \"yes\";\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        -464
+      ],
+      "id": "8e3f47f5-154a-4893-bbe6-9dc6f55c59cd",
+      "name": "proccessed"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  let data = item.json;\n\n  // 1️⃣ Trim all string fields\n  for (let key in data) {\n    if (typeof data[key] === \"string\") {\n      data[key] = data[key].trim();\n    }\n  }\n\n  // 2️⃣ Standardize text case\n  if (data.gender) {\n    data.gender = data.gender.toLowerCase();\n  }\n\n  if (data.contract) {\n    data.contract = data.contract.toLowerCase();\n  }\n\n  // 3️⃣ Convert numeric fields\n  if (data.tenure) {\n    data.tenure = Number(data.tenure);\n  }\n\n  if (data.monthlycharges) {\n    data.monthlycharges = Number(data.monthlycharges);\n  }\n\n  if (data.churn_percentage) {\n    data.churn_percentage = Number(data.churn_percentage);\n  }\n\n  // 4️⃣ Handle missing values\n  if (!data.tenure || isNaN(data.tenure)) {\n    data.tenure = 0;\n  }\n\n  if (!data.monthlycharges || isNaN(data.monthlycharges)) {\n    data.monthlycharges = 0;\n  }\n\n  // 5️⃣ Remove impossible values\n  if (data.tenure < 0) {\n    data.tenure = 0;\n  }\n\n  if (data.monthlycharges < 0) {\n    data.monthlycharges = 0;\n  }\n\n  // 6️⃣ Validate email\n  if (data.email) {\n    const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n    if (!emailRegex.test(data.email)) {\n      data.email_valid = false;\n    } else {\n      data.email_valid = true;\n    }\n  }\n\n  // 7️⃣ Create feature: high_value_customer\n  data.high_value_customer = data.monthlycharges > 100;\n\n  return { json: data };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        -464
+      ],
+      "id": "30e46ada-9f73-470d-9e08-867b602fbbfd",
+      "name": "data cleaning"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n\n  // 1️⃣ Extract values\n  let tenure = Number(item.json.tenure) || 0;\n  let monthly = Number(item.json.MonthlyCharges) || 0;\n  let contract = item.json.Contract;\n  let security = item.json.OnlineSecurity;\n  let tech = item.json.TechSupport;\n\n  // 2️⃣ Encode categorical variables\n\n  // Contract encoding\n  let contract_num = 0;\n  if (contract === \"Month-to-month\") contract_num = 0;\n  else if (contract === \"One year\") contract_num = 1;\n  else if (contract === \"Two year\") contract_num = 2;\n\n  // Online security (Yes=1, No=0)\n  let security_num = (security === \"Yes\") ? 1 : 0;\n\n  // Tech support (Yes=1, No=0)\n  let tech_num = (tech === \"Yes\") ? 1 : 0;\n\n  // 3️⃣ Logistic Regression Coefficients (realistic example)\n  let intercept = -1.5;\n  let b_tenure = -0.03;\n  let b_monthly = 0.02;\n  let b_contract = -0.6;\n  let b_security = -0.8;\n  let b_tech = -0.7;\n\n  // 4️⃣ Linear combination\n  let z = intercept\n          + (b_tenure * tenure)\n          + (b_monthly * monthly)\n          + (b_contract * contract_num)\n          + (b_security * security_num)\n          + (b_tech * tech_num);\n\n  // 5️⃣ Sigmoid function\n  let probability = 1 / (1 + Math.exp(-z));\n\n  return {\n    json: {\n      ...item.json,\n      churn_probability: probability,\n      churn_percentage: (probability * 100).toFixed(2)\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        352,
+        -464
+      ],
+      "id": "97adefb4-4039-47fc-85b7-289f3565257f",
+      "name": "ML model"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "11f4ac47-af93-4f05-b115-527d1ec0c1b1",
+              "leftValue": "={{$json[\"churn_percentage\"]}}",
+              "rightValue": 60,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        704,
+        -464
+      ],
+      "id": "94c7ddc5-4667-441e-8d43-34bba0e6409f",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{$json.email}}",
+        "subject": "We Value You – Special Offer Inside ✨ ✨ ✨ ✨",
+        "emailType": "text",
+        "message": "=Dear {{$json.name}},\n\nThank you for being a valued customer. We’re excited to offer you an **exclusive, limited-time deal** created especially for you. ✨\n\nEnjoy special benefits, added value, and priority perks designed to enhance your experience with us. 🚀\n\n👉 Claim your offer here:\nhttps://example.com/special-offer\n\n⏳ Don’t miss out — this opportunity is available for a short time only.\n\nThank you for your continued support. 💙\n\nWarm regards,\nCustomer Success Team\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        928,
+        -480
+      ],
+      "id": "2da1a55d-e504-413e-81bf-36ab1bd05fc4",
+      "name": "Send a message",
+      "webhookId": "fbe3c2c1-cf3f-4327-9698-19ca28613068",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "bBX0GpffMVfQRn8n",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nfor (let item of items) {\n\n    let tenure = Number(item.json.tenure) || 0;\n    let monthly = Number(item.json.MonthlyCharges) || 0;\n    let contract = item.json.Contract || \"\";\n\n    let contract_flag = contract === \"Month-to-month\" ? 1 : 0;\n\n    let w_tenure = -0.05;\n    let w_monthly = 0.03;\n    let w_contract = 1.2;\n    let bias = -1.5;\n\n    let z =\n        (w_tenure * tenure) +\n        (w_monthly * monthly) +\n        (w_contract * contract_flag) +\n        bias;\n\n    let probability = 1 / (1 + Math.exp(-z));\n\n    item.json.churn_percentage = Math.round(probability * 100);\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        -464
+      ],
+      "id": "cf4537ac-0e9f-43f5-a180-1bdd68d5fc6e",
+      "name": "Code in JavaScript"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "proccessed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "proccessed": {
+      "main": [
+        [
+          {
+            "node": "data cleaning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "data cleaning": {
+      "main": [
+        [
+          {
+            "node": "ML model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ML model": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        []
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "d08dae05-197a-4c01-93e2-be99d3c30347",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d8a67673b5540a1e6ac5ebb1a1d5639d2a55147717f2180195eef72a451ed296"
+  },
+  "id": "FzgZqeYHWSciWHUK2sPZK",
+  "tags": []
+}
